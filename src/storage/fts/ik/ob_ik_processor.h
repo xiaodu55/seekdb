@@ -103,6 +103,18 @@ public:
 
   int process(TokenizeContext &ctx);
 
+  // dispatch with the caller-fetched char info, avoiding repeated context reads
+  OB_INLINE int process(TokenizeContext &ctx,
+                        const char *ch,
+                        const uint8_t char_len,
+                        const ObFTCharUtil::CharType type)
+  {
+    return do_process(ctx, ch, char_len, type);
+  }
+
+  // Reset per-parse mutable state so the processor can be reused across parses.
+  virtual void reset_state() {}
+
   virtual int do_process(TokenizeContext &ctx,
                          const char *ch,
                          const uint8_t char_len,

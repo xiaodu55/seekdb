@@ -18,6 +18,7 @@
 #define _OCEANBASE_STORAGE_FTS_IK_OB_IK_QUANTIFIER_PROCESSOR_H_
 
 #include "lib/allocator/ob_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/ik/ob_ik_processor.h"
 
@@ -30,8 +31,13 @@ class ObFTDictHub;
 class ObIKQuantifierProcessor : public ObIIKProcessor
 {
 public:
-  ObIKQuantifierProcessor(const ObIFTDict &quan_dict, ObIAllocator &alloc)
-      : quan_dict_(quan_dict), count_hits_(alloc), start_(-1), end_(-1), quan_char_cnt_(0)
+  explicit ObIKQuantifierProcessor(const ObIFTDict &quan_dict)
+      : count_alloc_(ObMemAttr("IkQuanHitList")),
+        quan_dict_(quan_dict),
+        count_hits_(count_alloc_),
+        start_(-1),
+        end_(-1),
+        quan_char_cnt_(0)
   {
   }
   ~ObIKQuantifierProcessor() override { count_hits_.reset(); }
@@ -40,6 +46,8 @@ public:
                  const char *ch,
                  const uint8_t char_len,
                  const ObFTCharUtil::CharType type);
+
+  void reset_state() override;
 
 private:
   int process_CN_number(TokenizeContext &ctx,
@@ -58,6 +66,9 @@ private:
   int output_num_token(TokenizeContext &ctx);
 
 private:
+  // dedicated arena for the per-parse hit list: pooled processors must not allocate
+  // per-parse state from the (shared) parser allocator
+  ObArenaAllocator count_alloc_;
   const ObIFTDict &quan_dict_;
   ObList<ObDATrieHit, ObIAllocator> count_hits_;
   int64_t start_;

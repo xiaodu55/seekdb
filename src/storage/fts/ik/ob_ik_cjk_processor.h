@@ -18,6 +18,7 @@
 #define _OCEANBASE_STORAGE_FTS_IK_OB_IK_CJK_PROCESSOR_H_
 
 #include "lib/allocator/ob_allocator.h"
+#include "lib/allocator/page_arena.h"
 #include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/ik/ob_ik_processor.h"
 
@@ -29,8 +30,12 @@ class ObFTDictHub;
 class ObIKCJKProcessor : public ObIIKProcessor
 {
 public:
-  ObIKCJKProcessor(const ObIFTDict &dict_main, ObIAllocator &alloc)
-      : hits_(alloc), dict_main_(dict_main), cjk_start_(-1), cjk_end_(-1)
+  explicit ObIKCJKProcessor(const ObIFTDict &dict_main)
+      : hits_alloc_(ObMemAttr("IkCjkHitList")),
+        hits_(hits_alloc_),
+        dict_main_(dict_main),
+        cjk_start_(-1),
+        cjk_end_(-1)
   {
   }
   ~ObIKCJKProcessor() override { hits_.reset(); }
@@ -41,7 +46,12 @@ public:
                  const uint8_t char_len,
                  const ObFTCharUtil::CharType type) override;
 
+  void reset_state() override;
+
 private:
+  // dedicated arena for the per-parse hit list: pooled processors must not allocate
+  // per-parse state from the (shared) parser allocator
+  ObArenaAllocator hits_alloc_;
   ObList<ObDATrieHit, ObIAllocator> hits_;
   const ObIFTDict &dict_main_;
   int64_t cjk_start_;

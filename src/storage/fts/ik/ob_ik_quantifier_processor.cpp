@@ -191,6 +191,13 @@ int ObIKQuantifierProcessor::output_num_token(TokenizeContext &ctx)
   return ret;
 }
 
+void ObIKQuantifierProcessor::reset_state()
+{
+  reset();
+  count_hits_.clear();
+  count_alloc_.reset();
+}
+
 void ObIKQuantifierProcessor::reset()
 {
   start_ = -1;

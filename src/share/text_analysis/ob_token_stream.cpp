@@ -82,6 +82,16 @@ int ObTextWhitespaceTokenizer::inner_open(const ObDatum &document, const ObChars
   int ret = OB_SUCCESS;
   curr_token_ptr_ = nullptr;
   trav_pos_ = 0;
+  // precompute the per-byte delimiter table from the charset ctype array, so the
+  // per-character scan needs a single table access instead of three
+  if (OB_NOT_NULL(cs) && OB_NOT_NULL(cs->ctype)) {
+    for (int32_t i = 0; i < 256; ++i) {
+      const uint8_t flags = static_cast<uint8_t>((cs->ctype + 1)[i]);
+      delim_tab_[i] = (0 != (flags & (_MY_SPC | _MY_PNT | _MY_CTR))) ? 1 : 0;
+    }
+  } else {
+    MEMSET(delim_tab_, 0, sizeof(delim_tab_));
+  }
   return ret;
 }
 
@@ -136,10 +146,8 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
 bool ObTextWhitespaceTokenizer::found_delimiter()
 {
-  bool found = false;
   const char *curr_char = input_doc_->ptr_ + trav_pos_;
-  found = ob_isspace(cs_, *curr_char) || ob_iscntrl(cs_, *curr_char) || ob_ispunct(cs_, *curr_char);
-  return found;
+  return 0 != delim_tab_[static_cast<unsigned char>(*curr_char)];
 }
 
 ObTokenNormalizer::ObTokenNormalizer()

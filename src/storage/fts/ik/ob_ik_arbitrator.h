@@ -38,6 +38,10 @@ public:
 
   int output_result(TokenizeContext &ctx);
 
+  // reclaim the per-batch chain arena and hashmap entries so the arbitrator can be
+  // reused across batches instead of being rebuilt
+  void reuse();
+
 private:
   int prepare(TokenizeContext &ctx);
 

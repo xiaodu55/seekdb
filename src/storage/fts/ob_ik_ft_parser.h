@@ -21,6 +21,7 @@
 #include "storage/fts/dict/ob_ft_cache_container.h"
 #include "storage/fts/dict/ob_ft_dict.h"
 #include "storage/fts/dict/ob_ft_dict_def.h"
+#include "storage/fts/ik/ob_ik_arbitrator.h"
 #include "storage/fts/ik/ob_ik_processor.h"
 #include "data_plane/fts/ob_fts_parser.h"
 
@@ -37,6 +38,7 @@ public:
   ObIKFTParser(ObIAllocator &allocator, ObFTDictHub *hub)
       : allocator_(allocator),
         is_inited_(false),
+        ctx_alloc_(nullptr),
         coll_type_(ObCollationType::CS_TYPE_INVALID),
         ctx_(nullptr),
         hub_(hub),
@@ -52,7 +54,16 @@ public:
 
   virtual ~ObIKFTParser() { reset(); }
 
-  int init(const ObFTParserParam &param);
+  // One-time initialization of the reusable core (dicts + segmenters), excluding the
+  // per-call TokenizeContext. Dict cache handles stay pinned for the core's lifetime.
+  int init_core(const ObFTParserParam &param);
+
+  // Per-call setup: fresh TokenizeContext from the caller's allocator over the new
+  // text, plus reset of all per-parse processor state.
+  int prepare_for_call(const ObFTParserParam &param);
+
+  // Per-call teardown: release the TokenizeContext only; the core stays reusable.
+  void release_call();
 
   int get_next_token(const char *&word,
                      int64_t &word_len,
@@ -78,7 +89,7 @@ private:
 
   int init_segmenter(const ObFTParserParam &param);
 
-  int init_ctx(const ObFTParserParam &param);
+  int compute_coll_type(const ObFTParserParam &param);
 
   void reset();
 
@@ -92,11 +103,15 @@ private:
   static constexpr int SEGMENT_LIMIT = 1000;
   ObIAllocator &allocator_;
   bool is_inited_;
+  ObIAllocator *ctx_alloc_;  // allocator from which ctx_ was allocated (per call)
 
   ObCollationType coll_type_;
   TokenizeContext *ctx_;
+  ObIKArbitrator arbitrator_;  // reused across batches/calls, owns its own arena
   ObFTDictHub *hub_;
   ObList<ObIIKProcessor *, ObIAllocator> segmenters_;
+  ObIIKProcessor *segmenter_arr_[4] = {nullptr, nullptr, nullptr, nullptr};
+  int64_t segmenter_cnt_ = 0;
 
   // For now there's no change of dict in one query, so we can pin dict this level.
   ObFTCacheRangeContainer cache_main_;
@@ -119,6 +134,14 @@ public:
   virtual void free_token_iter(ObFTParserParam *param, ObITokenIterator *&iter) const override;
   virtual int get_add_word_flag(ObAddWordFlag &flag) const override;
 };
+
+// Reusable ObIKFTParser core pool. A core pins the built-in dict cache handles, so
+// the per-call dict loading (KVCache get + lock traffic) is skipped after first use.
+// Acquired cores must be returned with release_pooled_ik_parser().
+int acquire_pooled_ik_parser(const ObFTParserParam &param, ObFTDictHub *hub, ObIKFTParser *&parser);
+void release_pooled_ik_parser(ObIKFTParser *parser);
+// Destroys all pooled cores; must run before the dict hub and dict cache go away.
+void destroy_ik_parser_pool();
 
 } //  namespace storage
 } //  namespace oceanbase

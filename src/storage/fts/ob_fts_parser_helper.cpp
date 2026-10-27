@@ -225,6 +225,9 @@ int ObFTParseData::init_dict_hub()
 
 void ObFTParseData::destroy()
 {
+  // pooled IK parser cores pin dict cache handles and reference the dict hub,
+  // so they must be destroyed before everything below
+  destroy_ik_parser_pool();
   if (OB_NOT_NULL(stop_word_checker_)) {
     stop_word_checker_->destroy();
     OB_DELETEx(ObStopWordChecker, &handler_allocator_, stop_word_checker_);

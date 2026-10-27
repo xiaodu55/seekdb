@@ -376,9 +376,16 @@ struct ObDatumStrCmpImpl
   static int OB_INLINE cmp(const ObDatum &l, const ObDatum &r, int &cmp_ret,
                            const ObCollationType cs, const bool with_end_space)
   {
-    cmp_ret = ObCharset::strcmpsp(cs, l.ptr_, l.len_, r.ptr_, r.len_, with_end_space);
-    cmp_ret = cmp_ret > 0 ? 1 : (cmp_ret < 0 ? -1 : 0);
-    return OB_SUCCESS;
+    int ret = OB_SUCCESS;
+    // fast path: byte-identical strings are equal under any collation, and the
+    // duplicate-heavy keys of an FTS index hit this often
+    if (l.len_ == r.len_ && 0 == memcmp(l.ptr_, r.ptr_, l.len_)) {
+      cmp_ret = 0;
+    } else {
+      cmp_ret = ObCharset::strcmpsp(cs, l.ptr_, l.len_, r.ptr_, r.len_, with_end_space);
+      cmp_ret = cmp_ret > 0 ? 1 : (cmp_ret < 0 ? -1 : 0);
+    }
+    return ret;
   }
 };
 

@@ -81,6 +81,8 @@ private:
 private:
   const char *curr_token_ptr_;
   int64_t trav_pos_;
+  // per-byte delimiter table (space|cntrl|punct), precomputed from cs->ctype at open()
+  uint8_t delim_tab_[256];
 };
 
 class ObTokenNormalizer : public ObITokenStream

@@ -298,13 +298,24 @@ int ObIKArbitrator::remove_conflict(const ObIKToken &token, ObIKTokenChain *opti
   return ret;
 }
 
+void ObIKArbitrator::reuse()
+{
+  if (chains_.created()) {
+    chains_.clear();
+  }
+  alloc_.reset();
+}
+
 int ObIKArbitrator::prepare(TokenizeContext &ctx)
 {
   int ret = OB_SUCCESS;
 
   int cal_bucket_num = MAX(ctx.fulltext_len() / 100, 10);
   cal_bucket_num = MIN(cal_bucket_num, 100);
-  if (OB_FAIL(chains_.create(cal_bucket_num, ObMemAttr("IK ARBITRATE")))) {
+  if (chains_.created()) {
+    // persistent arbitrator: keep the allocated buckets and just drop the entries
+    chains_.clear();
+  } else if (OB_FAIL(chains_.create(cal_bucket_num, ObMemAttr("IK ARBITRATE")))) {
   }
   return ret;
 }
