@@ -77,6 +77,7 @@ private:
   int prepare_next_char();
 
   ObCollationType coll_type_;
+  const ObCharsetInfo *cs_;  // cached for the per-character well-formedness check
   const char *fulltext_;
   int64_t fulltext_len_;
 

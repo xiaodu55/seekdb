@@ -51,7 +51,8 @@ TokenizeContext::TokenizeContext(ObCollationType coll_type,
                                  const char *fulltext,
                                  int64_t fulltext_len,
                                  bool is_smart)
-    : coll_type_(coll_type), fulltext_(fulltext), fulltext_len_(fulltext_len), cursor_(0),
+    : coll_type_(coll_type), cs_(ObCharset::get_charset(coll_type)),
+      fulltext_(fulltext), fulltext_len_(fulltext_len), cursor_(0),
       next_char_len_(0), handle_size_(0), is_smart_(is_smart), token_list_(allocator),
       result_list_(allocator)
 {
@@ -102,12 +103,24 @@ int TokenizeContext::current_char_type(ObFTCharUtil::CharType &type)
 int TokenizeContext::prepare_next_char()
 {
   int ret = OB_SUCCESS;
-  if (OB_FAIL(ObCharset::first_valid_char(coll_type_,
-                                          fulltext_ + cursor_,
-                                          fulltext_len_ - cursor_,
-                                          next_char_len_))) {
+  const char *cur = fulltext_ + cursor_;
+  const int64_t remaining = fulltext_len_ - cursor_;
+  // fast path mirrors ObCharset::first_valid_char with the charset info cached, then
+  // classifies the already-validated char with a single decode
+  if (OB_NOT_NULL(cs_) && OB_NOT_NULL(cs_->cset) && remaining > 0) {
+    int error = 0;
+    const int64_t len =
+        static_cast<int64_t>(cs_->cset->well_formed_len(cs_, cur, cur + remaining, 1, &error));
+    if (OB_UNLIKELY(0 != error)) {
+      ret = OB_INVALID_ARGUMENT;
+    } else if (OB_FAIL(ObFTCharUtil::classify_by_unicode(
+                   coll_type_, cur, static_cast<uint8_t>(len), next_char_type_))) {
+    } else {
+      next_char_len_ = len;
+    }
+  } else if (OB_FAIL(ObCharset::first_valid_char(coll_type_, cur, remaining, next_char_len_))) {
   } else if (OB_FAIL(ObFTCharUtil::classify_first_char(coll_type_,
-                                                       fulltext_ + cursor_,
+                                                       cur,
                                                        next_char_len_,
                                                        next_char_type_))) {
   }

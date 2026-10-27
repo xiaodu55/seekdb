@@ -125,7 +125,7 @@ public:
            || type == ObUMediumIntType || type == ObUInt32Type || type == ObUInt64Type
            || type == ObFloatType || type == ObUFloatType || type == ObDoubleType
            || type == ObUDoubleType || type == ObNumberType || type == ObUNumberType
-           || type == ObCharType || type == ObDecimalIntType
+           || type == ObCharType || type == ObVarcharType || type == ObDecimalIntType
            || type == ObMySQLDateType || type == ObMySQLDateTimeType)
            && (cs == CS_TYPE_COLLATION_FREE || cs == CS_TYPE_BINARY || cs == CS_TYPE_UTF8MB4_BIN
               || cs == CS_TYPE_GBK_BIN || cs == CS_TYPE_GB18030_BIN || cs == CS_TYPE_UTF8MB4_GENERAL_CI
