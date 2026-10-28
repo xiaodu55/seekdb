@@ -394,7 +394,59 @@ struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
 {
   inline static int cmp(const ObDatum &l, const ObDatum &r, int &cmp_ret)
   {
-    return ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+    int ret = OB_SUCCESS;
+    if (l.len_ == r.len_ && 0 == memcmp(l.ptr_, r.ptr_, l.len_)) {
+      // byte-identical strings are equal under any collation, and the
+      // duplicate-heavy keys of an FTS index hit this often
+      cmp_ret = 0;
+    } else if (CS_TYPE == CS_TYPE_UTF8MB4_GENERAL_CI
+               && try_cmp_general_ci_ascii(l, r, cmp_ret, WITH_END_SPACE)) {
+      // decided by the ascii fast path
+    } else {
+      ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+    }
+    return ret;
+  }
+
+private:
+  // utf8mb4_general_ci weights for ascii are the case-folded bytes, so a
+  // pure-ascii pair is compared inline; when a byte >= 0x80 shows up the
+  // decision falls back to the full collation compare. Returns false when
+  // the pair was not decided here.
+  inline static bool try_cmp_general_ci_ascii(const ObDatum &l, const ObDatum &r,
+                                              int &cmp_ret, const bool with_end_space)
+  {
+    const int64_t min_len = l.len_ < r.len_ ? l.len_ : r.len_;
+    int64_t i = 0;
+    int c = 0;
+    for (; i < min_len; ++i) {
+      const unsigned char a = static_cast<unsigned char>(l.ptr_[i]);
+      const unsigned char b = static_cast<unsigned char>(r.ptr_[i]);
+      if (a >= 0x80 || b >= 0x80) {
+        return false;
+      }
+      const unsigned char fa = (a >= 'A' && a <= 'Z') ? static_cast<unsigned char>(a + 32) : a;
+      const unsigned char fb = (b >= 'A' && b <= 'Z') ? static_cast<unsigned char>(b + 32) : b;
+      if (fa != fb) {
+        cmp_ret = fa < fb ? -1 : 1;
+        return true;
+      }
+    }
+    if (l.len_ == r.len_) {
+      cmp_ret = 0;
+    } else if (with_end_space) {
+      // pad-space: trailing spaces of the longer string do not count
+      const char *long_ptr = l.len_ > r.len_ ? l.ptr_ : r.ptr_;
+      const int64_t long_len = l.len_ > r.len_ ? l.len_ : r.len_;
+      int64_t j = long_len - 1;
+      while (j >= min_len && ' ' == long_ptr[j]) {
+        --j;
+      }
+      cmp_ret = j >= min_len ? 1 : 0;
+    } else {
+      cmp_ret = l.len_ > r.len_ ? 1 : -1;
+    }
+    return true;
   }
 };
 
