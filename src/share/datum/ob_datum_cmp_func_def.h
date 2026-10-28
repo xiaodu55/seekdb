@@ -403,7 +403,7 @@ struct ObDatumStrCmp : public ObDefined<SupportedCollection<CS_TYPE>::defined_>
                && try_cmp_general_ci_ascii(l, r, cmp_ret, WITH_END_SPACE)) {
       // decided by the ascii fast path
     } else {
-      ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+      ret = cmp_cached_cs(l, r, cmp_ret);
     }
     return ret;
   }
@@ -447,6 +447,37 @@ private:
       cmp_ret = l.len_ > r.len_ ? 1 : -1;
     }
     return true;
+  }
+
+  // Cached charset resolution for the full-collation fallback: skips
+  // ObCharset::strcmpsp per-call is_argument_valid + get_charset lookups,
+  // which the sort/query hot path pays on every non-byte-equal pair.
+  // Guards replicate is_argument_valid; an unresolvable CS_TYPE falls back
+  // to the original path.
+  inline static int cmp_cached_cs(const ObDatum &l, const ObDatum &r, int &cmp_ret)
+  {
+    int ret = OB_SUCCESS;
+    static const ObCharsetInfo *cs_cache = ObCharset::get_charset(CS_TYPE);
+    if (OB_LIKELY(nullptr != cs_cache && nullptr != cs_cache->coll
+                  && nullptr != cs_cache->coll->strnncollsp)) {
+      if (OB_UNLIKELY(l.len_ < 0) || OB_UNLIKELY(r.len_ < 0) ||
+          (OB_ISNULL(l.ptr_) && OB_UNLIKELY(0 != l.len_)) ||
+          (OB_ISNULL(r.ptr_) && OB_UNLIKELY(0 != r.len_))) {
+        cmp_ret = 0;
+      } else {
+        const int result = cs_cache->coll->strnncollsp(
+            cs_cache,
+            reinterpret_cast<const unsigned char *>(l.ptr_),
+            static_cast<int64_t>(l.len_),
+            reinterpret_cast<const unsigned char *>(r.ptr_),
+            static_cast<int64_t>(r.len_),
+            WITH_END_SPACE);
+        cmp_ret = result > 0 ? 1 : (result < 0 ? -1 : 0);
+      }
+    } else {
+      ret = ObDatumStrCmpImpl::cmp(l, r, cmp_ret, CS_TYPE, WITH_END_SPACE);
+    }
+    return ret;
   }
 };
 
