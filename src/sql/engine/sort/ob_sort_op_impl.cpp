@@ -356,7 +356,8 @@ int ObSortOpImpl::ObAdaptiveQS::compare_vals(int64_t l, int64_t r,
 
 ObSortOpImpl::Compare::Compare()
   : ret_(OB_SUCCESS), sort_collations_(nullptr), sort_cmp_funs_(nullptr),
-    exec_ctx_(nullptr), access_ctx_(nullptr), cmp_count_(0), cmp_start_(0), cmp_end_(0)
+    exec_ctx_(nullptr), access_ctx_(nullptr), cmp_count_(0), cmp_start_(0), cmp_end_(0),
+    use_cached_cols_(false)
 {
 }
 
@@ -380,6 +381,12 @@ int ObSortOpImpl::Compare::init(
     cmp_start_ = 0;
     cmp_end_ = sort_cmp_funs_->count();
     enable_encode_sortkey_ = enable_encode_sortkey;
+    use_cached_cols_ = (cnt_ > 0 && cnt_ <= MAX_CACHED_COLS);
+    for (int64_t i = 0; OB_SUCC(ret) && use_cached_cols_ && i < cnt_; i++) {
+      cached_cmp_funs_[i] = sort_cmp_funs_->at(i);
+      cached_field_idx_[i] = sort_collations_->at(i).field_idx_;
+      cached_ascending_[i] = sort_collations_->at(i).is_ascending_;
+    }
   }
   return ret;
 }
@@ -413,6 +420,20 @@ bool ObSortOpImpl::Compare::operator()(
     int cmp = 0;
     cmp = MEMCMP(l_cell.ptr_, r_cell.ptr_, min(l_cell.len_, r_cell.len_));
     less = cmp != 0 ? (cmp < 0) : (l_cell.len_ - r_cell.len_) < 0;
+  } else if (use_cached_cols_) {
+    const ObDatum *lcells = l->cells();
+    const ObDatum *rcells = r->cells();
+    int cmp = 0;
+    for (int64_t i = cmp_start_; 0 == cmp && i < cmp_end_ && OB_SUCC(ret); i++) {
+      if (OB_FAIL(cached_cmp_funs_[i].cmp_func_(lcells[cached_field_idx_[i]],
+                                                rcells[cached_field_idx_[i]],
+                                                cmp, access_ctx_))) {
+      } else if (cmp < 0) {
+        less = cached_ascending_[i];
+      } else if (cmp > 0) {
+        less = !cached_ascending_[i];
+      }
+    }
   } else {
     const ObDatum *lcells = l->cells();
     const ObDatum *rcells = r->cells();
@@ -503,6 +524,17 @@ int ObSortOpImpl::Compare::with_ties_cmp(const ObChunkDatumStore::StoredRow *l,
     // already fail
   } else if (!is_inited() || OB_ISNULL(l) || OB_ISNULL(r)) {
     ret = !is_inited() ? OB_NOT_INIT : OB_INVALID_ARGUMENT;
+  } else if (use_cached_cols_) {
+    const ObDatum *rcells = r->cells();
+    const ObDatum *lcells = l->cells();
+    for (int64_t i = 0; 0 == cmp && i < cnt_ && OB_SUCC(ret); i++) {
+      if (OB_FAIL(cached_cmp_funs_[i].cmp_func_(lcells[cached_field_idx_[i]],
+                                                rcells[cached_field_idx_[i]],
+                                                cmp, access_ctx_))) {
+      } else {
+        cmp = cached_ascending_[i] ? -cmp : cmp;
+      }
+    }
   } else {
     const ObDatum *rcells = r->cells();
     const ObDatum *lcells = l->cells();

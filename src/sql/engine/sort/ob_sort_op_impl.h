@@ -480,6 +480,14 @@ public:
     int64_t cmp_count_;
     int64_t cmp_start_;
     int64_t cmp_end_;
+    // cached per-column compare info: skips the bounds-checked at() lookups
+    // on the non-encoded compare hot path; enabled only when the key count
+    // fits the fixed cache (larger counts keep the original path)
+    enum { MAX_CACHED_COLS = 8 };
+    bool use_cached_cols_;
+    ObSortCmpFunc cached_cmp_funs_[MAX_CACHED_COLS];
+    int64_t cached_field_idx_[MAX_CACHED_COLS];
+    bool cached_ascending_[MAX_CACHED_COLS];
   private:
     int64_t cnt_;
     DISALLOW_COPY_AND_ASSIGN(Compare);
