@@ -219,7 +219,7 @@ int TokenizeContext::get_next_token(const char *&word,
 int TokenizeContext::compound(ObIKToken &token)
 {
   int ret = OB_SUCCESS;
-  ObList<ObIKToken, ObIAllocator> &list = result_list_;
+  ObFastTokenDeque &list = result_list_;
   if (is_smart_) {
     if (!list.empty()) {
       if (ObIKTokenType::IK_ARABIC_TOKEN == token.type_) {

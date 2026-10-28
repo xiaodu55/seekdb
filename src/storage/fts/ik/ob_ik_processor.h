@@ -27,6 +27,57 @@ namespace oceanbase
 {
 namespace storage
 {
+// chunked deque for the IK result tokens: constant-time push/pop with slot
+// recycling on reset(), removing the per-token node allocations of ObList.
+// blocks are allocated from the (per-parse) allocator and reclaimed with it.
+class ObFastTokenDeque
+{
+public:
+  static constexpr int64_t BLOCK_BITS = 8;
+  static constexpr int64_t BLOCK_SIZE = 1 << BLOCK_BITS;
+  static constexpr int64_t MAX_BLOCK_CNT = 64;
+
+  explicit ObFastTokenDeque(ObIAllocator &allocator)
+      : allocator_(allocator), blocks_(), alloc_cnt_(0), head_(0), size_(0)
+  {}
+  ~ObFastTokenDeque() = default;
+
+  int push_back(const ObIKToken &token)
+  {
+    int ret = OB_SUCCESS;
+    const int64_t pos = head_ + size_;
+    const int64_t block = pos >> BLOCK_BITS;
+    if (OB_UNLIKELY(block >= MAX_BLOCK_CNT)) {
+      ret = OB_SIZE_OVERFLOW;
+    } else if (OB_ISNULL(blocks_[block])) {
+      if (OB_ISNULL(blocks_[block] = static_cast<ObIKToken *>(
+                        allocator_.alloc(sizeof(ObIKToken) * BLOCK_SIZE)))) {
+        ret = OB_ALLOCATE_MEMORY_FAILED;
+      } else {
+        ++alloc_cnt_;
+      }
+    }
+    if (OB_SUCC(ret)) {
+      blocks_[block][pos & (BLOCK_SIZE - 1)] = token;
+      ++size_;
+    }
+    return ret;
+  }
+
+  ObIKToken &get_first() { return blocks_[head_ >> BLOCK_BITS][head_ & (BLOCK_SIZE - 1)]; }
+  void pop_front() { --size_; ++head_; }
+  bool empty() const { return 0 == size_; }
+  // recycles slots in place; allocated blocks stay for reuse within this parse
+  void reset() { head_ = 0; size_ = 0; }
+
+private:
+  ObIAllocator &allocator_;
+  ObIKToken *blocks_[MAX_BLOCK_CNT] = {};
+  int64_t alloc_cnt_;
+  int64_t head_;
+  int64_t size_;
+};
+
 class TokenizeContext
 {
 public:
@@ -69,7 +120,7 @@ public:
 
   ObFTSortList &token_list() { return token_list_; }
 
-  ObList<ObIKToken, ObIAllocator> &result_list() { return result_list_; }
+  ObFastTokenDeque &result_list() { return result_list_; }
 
   int32_t handle_size() const { return handle_size_; }
 
@@ -89,7 +140,7 @@ private:
   bool is_smart_;
 
   ObFTSortList token_list_;
-  ObList<ObIKToken, ObIAllocator> result_list_;
+  ObFastTokenDeque result_list_;
 
 private:
   DISALLOW_COPY_AND_ASSIGN(TokenizeContext);
